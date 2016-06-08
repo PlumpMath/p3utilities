@@ -12,6 +12,7 @@ config.status
 data.h
 libtool
 Makefile
+*.o
 
 # Various output names
 win_*/
