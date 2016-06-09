@@ -14,7 +14,7 @@ AM_LDFLAGS = -L/usr/lib/x86_64-linux-gnu/panda3d
 LDADD = -lp3framework -lpanda -lpandaexpress -lp3dtool -lp3dtoolconfig \
 		-lp3pystub -lXxf86dga -lpython2.7 -lpandaphysics -lpthread
 
-noinst_PROGRAMS = basic
+noinst_PROGRAMS = basic octree_orig
 
 BUILT_SOURCES = data.h
 
@@ -33,5 +33,11 @@ basic_SOURCES = \
 	basic.cpp
 
 nodist_basic_SOURCES = $(common_sources)
+
+#octree_orig
+octree_orig_SOURCES = \
+	octree_orig.cpp
+
+nodist_octree_orig_SOURCES = $(common_sources)
 
 CLEANFILES = data.h
