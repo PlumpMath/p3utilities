@@ -1,23 +1,7 @@
-/*
- *   This file is part of Ely.
- *
- *   Ely is free software: you can redistribute it and/or modify
- *   it under the terms of the GNU General Public License as published by
- *   the Free Software Foundation, either version 3 of the License, or
- *   (at your option) any later version.
- *
- *   Ely is distributed in the hope that it will be useful,
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *   GNU General Public License for more details.
- *
- *   You should have received a copy of the GNU General Public License
- *   along with Ely.  If not, see <http://www.gnu.org/licenses/>.
- */
 /**
- * \file /Ely/training/octree.cpp
+ * \file octree_orig.cpp
  *
- * \date 2013-03-10 
+ * \date 2016-06-08
  * \author consultit
  */
 
@@ -25,39 +9,38 @@
 #include <load_prc_file.h>
 #include <geomLines.h>
 #include <meshDrawer.h>
+#include "octree_orig.h"
 
 using namespace std;
 
 #include "data.h"
 
 ///forward declaration
-struct Entity;
-struct OctreeNode;
+class Collider;
 ///functions' declarations
-double (*Abs)(double) = &abs;
 void cleanOnExit(const Event* e, void* data);
-void testCollision(Entity *pA, Entity *pB);
+void testCollision(Collider *pA, Collider *pB);
 
 ///global data
 PandaFramework framework;
 WindowFramework *window;
 MeshDrawer* generator;
 //some values and declaration
-OctreeNode* octree;
+OctreeNode<Collider>* octree;
 LPoint3f WORLDCENTER(0.0, 0.0, 0.0);
 float WORLDWIDTH = 200.0, WORLDHALFWIDTH;
 int OBJECTSNUM = 3;
-list<Entity> entities;
+list<Collider> entities;
 float OBJECTMAXRADIUS = 5.0;
 float OBJECTMAXSPEED = 10.0;
 AsyncTask::DoneStatus updateAndTestCollisions(GenericAsyncTask* task,
 		void* data);
 
-class Entity
+class Collider
 {
 public:
-	Entity(const string& name);
-	~Entity();
+	Collider(const string& name);
+	~Collider();
 
 	// getters/setters
 	string get_name() const;
@@ -68,8 +51,8 @@ public:
 	void setRadius(float);
 	LVector3f getSpeed() const;
 	void setSpeed(const LVector3f&);
-	OctreeNode* getPNode() const;
-	void setPNode(OctreeNode*);
+	OctreeNode<Collider>* getPNode() const;
+	void setPNode(OctreeNode<Collider>*);
 
 	// Update position
 	void update(float dt, LPoint3f worldCenter, float maxWidth);
@@ -89,65 +72,12 @@ private:
 	// name
 	string name;
 	// Current container OctreeNode
-	OctreeNode* pNode;
+	OctreeNode<Collider>* pNode;
 	// Drawing stuff
 	NodePath geometry;
 };
 
-ostream &operator <<(ostream &out, const Entity & entity);
-
-// Octree node data structure
-class OctreeNode
-{
-public:
-	OctreeNode(void (*callback)(Entity *, Entity *));
-	~OctreeNode();
-
-	// getters/setters
-	LPoint3f getCenter();
-	void setCenter(const LPoint3f&);
-	float getHalfWidth();
-	void setHalfWidth(float);
-	OctreeNode *getParent();
-	void setParent(OctreeNode *);
-	int getIndex();
-	void setIndex(int);
-
-	void addGeometry(NodePath parent);
-	NodePath getGeomParent();
-
-	bool insertEntity(Entity *pEntity);
-	bool deleteNode(OctreeNode* octree);
-
-	void performAllTests();
-
-	void setTestCallback(void (*)(Entity *, Entity *));
-
-private:
-	// Center point of octree node
-	LPoint3f center;
-	// Half the width of the octree node volume
-	float halfWidth;
-	// Parent
-	OctreeNode *pParent;
-	// Index relative to its Parent (0-7)
-	int index;
-	// Child octree node table indexed by index (0-7)
-	map<int, OctreeNode*> pChildren;
-
-	// Entity set
-	set<Entity*> pEntities;
-	// Entity callback
-	void (*testCallback)(Entity *, Entity *);
-
-#ifdef UT_DEBUG
-	// Drawing stuff
-	NodePath geometry, geomParent;
-	// check allocation
-public:
-	static int allocatedNum;
-#endif //UT_DEBUG
-};
+ostream &operator <<(ostream &out, const Collider & entity);
 
 int main(int argc, char *argv[])
 {
@@ -227,7 +157,7 @@ int main(int argc, char *argv[])
 	//
 	WORLDHALFWIDTH = WORLDWIDTH / 2.0;
 	// Create the octree root node
-	octree = new OctreeNode(&testCollision);
+	octree = new OctreeNode<Collider>(&testCollision);
 	octree->setCenter(WORLDCENTER);
 	octree->setHalfWidth(WORLDHALFWIDTH);
 	octree->setIndex(-1);
@@ -243,7 +173,7 @@ int main(int argc, char *argv[])
 		float rnd;
 		// Add entities
 		entities.push_back(
-				Entity(
+				Collider(
 						string("entity")
 								+ static_cast<std::ostringstream&>(std::ostringstream().operator <<(
 										i)).str()));
@@ -299,7 +229,7 @@ AsyncTask::DoneStatus updateAndTestCollisions(GenericAsyncTask* task,
 			window->get_render());
 
 	// First: update Entities' positions
-	list<Entity>::iterator entityIt;
+	list<Collider>::iterator entityIt;
 	for (entityIt = entities.begin(); entityIt != entities.end(); ++entityIt)
 	{
 		entityIt->update(dt, WORLDCENTER, WORLDHALFWIDTH);
@@ -310,7 +240,7 @@ AsyncTask::DoneStatus updateAndTestCollisions(GenericAsyncTask* task,
 	for (entityIt = entities.begin(); entityIt != entities.end(); ++entityIt)
 	{
 		// Try first to insert Entity into its current container octree node
-		OctreeNode *containerNode = entityIt->getPNode();
+		OctreeNode<Collider> *containerNode = entityIt->getPNode();
 		while (not containerNode->insertEntity(/*containerNode,*/&(*entityIt)))
 		{
 			// Try current container octree node's parent, if any
@@ -326,7 +256,8 @@ AsyncTask::DoneStatus updateAndTestCollisions(GenericAsyncTask* task,
 		}
 	}
 	// Test collisions
-	OctreeNode* octree = reinterpret_cast<OctreeNode*>(data);
+	OctreeNode<Collider>* octree =
+			reinterpret_cast<OctreeNode<Collider>*>(data);
 
 	// draw check collision's feedback if any
 	generator->begin(window->get_camera_group().get_child(0),
@@ -344,7 +275,9 @@ void cleanOnExit(const Event* e, void* data)
 
 	// Remove the octree
 	delete octree;
-	assert(OctreeNode::allocatedNum == 0);
+#ifdef UT_DEBUG
+	assert(OctreeNode<Collider>::allocatedNum == 0);
+#endif //UT_DEBUG
 
 	// delete drawer
 	delete generator;
@@ -356,7 +289,7 @@ void cleanOnExit(const Event* e, void* data)
 
 }
 
-void testCollision(Entity *pA, Entity *pB)
+void testCollision(Collider *pA, Collider *pB)
 {
 //	cout << *pA << " <---> " << *pB << endl;
 	nassertv_always(!pA->getGeometry().is_empty());
@@ -367,12 +300,13 @@ void testCollision(Entity *pA, Entity *pB)
 }
 
 //Entity
-Entity::Entity(const string& name): radius(0), pNode(NULL)
+Collider::Collider(const string& name) :
+		radius(0), pNode(NULL)
 {
 	this->name = name;
 }
 
-Entity::~Entity()
+Collider::~Collider()
 {
 	if (not geometry.is_empty())
 	{
@@ -381,53 +315,53 @@ Entity::~Entity()
 }
 
 // getters
-string Entity::get_name() const
+string Collider::get_name() const
 {
 	return name;
 }
 
-LPoint3f Entity::getCenter() const
+LPoint3f Collider::getCenter() const
 {
 	return center;
 }
 
-void Entity::setCenter(const LPoint3f& value)
+void Collider::setCenter(const LPoint3f& value)
 {
 	center = value;
 }
 
-float Entity::getRadius() const
+float Collider::getRadius() const
 {
 	return radius;
 }
 
-void Entity::setRadius(float value)
+void Collider::setRadius(float value)
 {
 	radius = value;
 }
 
-LVector3f Entity::getSpeed() const
+LVector3f Collider::getSpeed() const
 {
 	return speed;
 }
 
-void Entity::setSpeed(const LVector3f& value)
+void Collider::setSpeed(const LVector3f& value)
 {
 	speed = value;
 }
 
-OctreeNode* Entity::getPNode() const
+OctreeNode<Collider>* Collider::getPNode() const
 {
 	return pNode;
 }
 
-void Entity::setPNode(OctreeNode* value)
+void Collider::setPNode(OctreeNode<Collider>* value)
 {
 	pNode = value;
 }
 
 // Update position
-void Entity::update(float dt, LPoint3f worldCenter, float maxWidth)
+void Collider::update(float dt, LPoint3f worldCenter, float maxWidth)
 {
 	// update position and speed
 	bool speedChanged = false;
@@ -461,7 +395,7 @@ void Entity::update(float dt, LPoint3f worldCenter, float maxWidth)
 	}
 }
 
-void Entity::addGeometry(NodePath parent, WindowFramework* window,
+void Collider::addGeometry(NodePath parent, WindowFramework* window,
 		PandaFramework& panda)
 {
 	geometry = window->load_model(panda.get_models(), "smiley");
@@ -483,331 +417,13 @@ void Entity::addGeometry(NodePath parent, WindowFramework* window,
 	geometry.set_pos_quat(center, LOrientationf(dir, 0.0));
 }
 
-NodePath Entity::getGeometry() const
+NodePath Collider::getGeometry() const
 {
 	return geometry;
 }
 
-ostream &operator <<(ostream &out, const Entity & entity)
+ostream &operator <<(ostream &out, const Collider & entity)
 {
 	out << entity.get_name();
 	return out;
 }
-
-///OctreeNode
-OctreeNode::OctreeNode(void (*callback)(Entity *, Entity *)) :
-		testCallback(callback), pParent(NULL), halfWidth(0), index(0)
-{
-#ifdef UT_DEBUG
-	cout << ++allocatedNum << endl;
-#endif //UT_DEBUG
-}
-
-OctreeNode::~OctreeNode()
-{
-	//deallocate children
-	for (map<int, OctreeNode*>::const_iterator childrenIt = pChildren.begin();
-			childrenIt != pChildren.end(); ++childrenIt)
-	{
-		delete childrenIt->second;
-	}
-
-#ifdef UT_DEBUG
-	if (not geometry.is_empty())
-	{
-		geometry.remove_node();
-	}
-	cout << --allocatedNum << endl;
-#endif //UT_DEBUG
-}
-
-LPoint3f OctreeNode::getCenter()
-{
-	return center;
-}
-
-void OctreeNode::setCenter(const LPoint3f& value)
-{
-	center = value;
-}
-
-float OctreeNode::getHalfWidth()
-{
-	return halfWidth;
-}
-
-void OctreeNode::setHalfWidth(float value)
-{
-	halfWidth = value;
-}
-
-OctreeNode *OctreeNode::getParent()
-{
-	return pParent;
-}
-
-void OctreeNode::setParent(OctreeNode *value)
-{
-	pParent = value;
-}
-
-int OctreeNode::getIndex()
-{
-	return index;
-}
-
-void OctreeNode::setIndex(int value)
-{
-	index = value;
-}
-
-void OctreeNode::addGeometry(NodePath parent)
-{
-#ifdef UT_DEBUG
-	// Unique name postfix
-	const unsigned long int addr =
-			reinterpret_cast<const unsigned long int>(this);
-	std::string postfix =
-			dynamic_cast<std::ostringstream&>(std::ostringstream().operator <<(
-					addr)).str();
-	//Create the Drawing geom
-	//Defining your own GeomVertexFormat: v3c4
-	PT(GeomVertexArrayFormat)array = new GeomVertexArrayFormat();
-	array->add_column(InternalName::make("vertex"), 3, Geom::NT_float32,
-			Geom::C_point);
-	array->add_column(InternalName::make("color"), 4, Geom::NT_float32,
-			Geom::C_color);
-	PT(GeomVertexFormat)unregistered_format = new GeomVertexFormat();
-	unregistered_format->add_array(array);
-	CPT(GeomVertexFormat)format =
-	GeomVertexFormat::register_format(unregistered_format);
-
-	//Creating and filling a GeomVertexData
-	PT(GeomVertexData)vdata = new
-	GeomVertexData("OctreeNodeGeomVertexData_" + postfix, GeomVertexFormat::get_v3c4(), Geom::UH_static);
-	vdata->set_num_rows(8);
-	GeomVertexWriter vertex, color;
-	vertex = GeomVertexWriter(vdata, "vertex");
-	color = GeomVertexWriter(vdata, "color");
-	LColor lineColor(1, 0, 0, 0);
-	//000
-	vertex.add_data3f(LVector3f(-halfWidth, -halfWidth, -halfWidth));
-	color.add_data4f(lineColor);
-	//001
-	vertex.add_data3f(LVector3f(halfWidth, -halfWidth, -halfWidth));
-	color.add_data4f(lineColor);
-	//010
-	vertex.add_data3f(LVector3f(-halfWidth, halfWidth, -halfWidth));
-	color.add_data4f(lineColor);
-	//011
-	vertex.add_data3f(LVector3f(halfWidth, halfWidth, -halfWidth));
-	color.add_data4f(lineColor);
-	//100
-	vertex.add_data3f(LVector3f(-halfWidth, -halfWidth, halfWidth));
-	color.add_data4f(lineColor);
-	//101
-	vertex.add_data3f(LVector3f(halfWidth, -halfWidth, halfWidth));
-	color.add_data4f(lineColor);
-	//110
-	vertex.add_data3f(LVector3f(-halfWidth, halfWidth, halfWidth));
-	color.add_data4f(lineColor);
-	//111
-	vertex.add_data3f(LVector3f(halfWidth, halfWidth, halfWidth));
-	color.add_data4f(lineColor);
-
-	// Creating the GeomPrimitive entities
-	PT(GeomLines)prim = new GeomLines(Geom::UH_static);
-	prim->add_vertices(0, 1);
-	prim->add_vertices(1, 3);
-	prim->add_vertices(3, 2);
-	prim->add_vertices(2, 0);
-	prim->add_vertices(4, 5);
-	prim->add_vertices(5, 7);
-	prim->add_vertices(7, 6);
-	prim->add_vertices(6, 4);
-	prim->add_vertices(4, 0);
-	prim->add_vertices(5, 1);
-	prim->add_vertices(7, 3);
-	prim->add_vertices(6, 2);
-
-	// Putting your new geometry in the scene graph
-	PT(Geom)geom = new Geom(vdata);
-	geom->add_primitive(prim);
-	PT(GeomNode)node = new GeomNode("OctreeNodeGeomNode_" + postfix);
-	node->add_geom(geom);
-	geomParent = parent;
-	geometry = geomParent.attach_new_node(node);
-	geometry.set_pos(center);
-	geometry.set_render_mode_thickness(1);
-#endif //UT_DEBUG
-}
-
-NodePath OctreeNode::getGeomParent()
-{
-#ifdef UT_DEBUG
-	return geomParent;
-#else
-	return NodePath();
-#endif //UT_DEBUG
-}
-
-bool OctreeNode::insertEntity(Entity *pEntity)
-{
-	// Check if Entity is (partially) outside tree
-	float delta = halfWidth - pEntity->getRadius();
-	if (delta <= 0.0)
-	{
-		// radius >= halfWidth: Entity cannot be contained in tree
-		return false;
-	}
-	else
-	{
-		// delta > 0.0: radius < halfWidth
-		for (int i = 0; i < 3; i++)
-		{
-			if (Abs(pEntity->getCenter()[i] - center[i]) >= delta)
-			{
-				// Entity (partially) outside tree
-				return false;
-			}
-		}
-	}
-	// Entity insertion
-	int index = 0;
-	bool straddle = false;
-	// Compute the octant number [0..7] the entity sphere center is in
-	// If straddling any of the dividing x, y, or z planes, exit directly
-	for (int i = 0; i < 3; i++)
-	{
-		float delta = pEntity->getCenter()[i] - center[i];
-		if (Abs(delta) <= pEntity->getRadius())
-		{
-			straddle = true;
-			break;
-		}
-		else if (delta > 0.0f)
-		{
-			index |= (1 << i); // ZYX
-		}
-	}
-	if (!straddle)
-	{
-		if (pChildren.find(index) == pChildren.end())
-		{
-			// Children[index] OctreeNode doesn't exist: create one
-			LVector3f offset;
-			float step = halfWidth * 0.5f;
-			offset.set_x((index & 1) ? step : -step);
-			offset.set_y((index & 2) ? step : -step);
-			offset.set_z((index & 4) ? step : -step);
-			OctreeNode* node = new OctreeNode(this->testCallback);
-			node->center = center + offset;
-			node->halfWidth = step;
-			node->index = index;
-			node->pParent = this;
-			node->addGeometry(getGeomParent());
-			pChildren[index] = node;
-		}
-		// Fully contained in existing Children[index] OctreeNode; insert in
-		// that subtree
-		return pChildren[index]->insertEntity(/*pChildren[index],*/pEntity);
-	}
-	else
-	{
-		// Straddling so add entity into Children of this OctreeNode (if not
-		// already present)
-		pEntities.insert(pEntity);
-		// Update the Entity's current container OctreeNode, if needed
-		if (pEntity->getPNode() != this)
-		{
-			// pTree is the new container
-			// Remove Entity from current container OctreeNode
-			pEntity->getPNode()->pEntities.erase(pEntity);
-
-			// Try to delete current container octree node and
-			// its parents, where possible
-			OctreeNode* toDeleteNode = pEntity->getPNode();
-			while (toDeleteNode and deleteNode(toDeleteNode))
-			{
-				toDeleteNode = toDeleteNode->pParent;
-			}
-
-			// Update current container OctreeNode
-			pEntity->setPNode(this);
-		}
-	}
-	return true;
-}
-
-//
-bool OctreeNode::deleteNode(OctreeNode* octree)
-{
-	bool result = false;
-	// Delete when it has parent and has no entities and has no children
-	if ((octree->pParent) and (octree->pEntities.size() == 0)
-			and (octree->pChildren.size() == 0))
-	{
-		// Remove OctreeNode from its parent's children
-		octree->pParent->pChildren.erase(octree->index);
-		// delete OctreeNode actually
-		delete octree;
-		//
-		result = true;
-	}
-	return result;
-}
-
-// Tests all entities that could possibly overlap due to cell ancestry and
-// coexistence in the same cell. Assumes entities exist in a single cell only,
-// and fully inside it
-void OctreeNode::performAllTests()
-{
-	// Keep track of all ancestor entity lists in a stack
-	const int MAX_DEPTH = 40;
-	static OctreeNode *ancestorStack[MAX_DEPTH];
-	static int depth = 0; // ’Depth == 0’ is invariant over calls
-	// Check collision between all entities on this level and all
-	// ancestor entities. The current level is included as its own
-	// ancestor so all necessary pairwise tests are done
-	ancestorStack[depth++] = this;
-	for (int n = 0; n < depth; n++)
-	{
-		Entity *pA, *pB;
-		set<Entity*>::const_iterator ancestorIt, treeIt;
-		for (ancestorIt = ancestorStack[n]->pEntities.begin();
-				ancestorIt != ancestorStack[n]->pEntities.end(); ++ancestorIt)
-		{
-			pA = *ancestorIt;
-			for (treeIt = ancestorStack[n]->pEntities.begin();
-					treeIt != ancestorStack[n]->pEntities.end(); ++treeIt)
-			{
-				pB = *treeIt;
-				// Avoid testing both A->B and B->A
-				if (pA == pB)
-					break;
-				// Now perform the collision test between pA and pB in some
-				// manner
-				testCallback(pA, pB);
-			}
-		}
-	}
-	// Recursively visit all existing children
-	for (map<int, OctreeNode*>::const_iterator childrenIt =
-			pChildren.begin(); childrenIt != pChildren.end();
-			++childrenIt)
-	{
-		childrenIt->second->performAllTests();
-	}
-
-	// Remove current octree node from ancestor stack before returning
-	depth--;
-}
-
-void OctreeNode::setTestCallback(void (*callback)(Entity *, Entity *))
-{
-	testCallback = callback;
-}
-
-#ifdef UT_DEBUG
-int OctreeNode::allocatedNum = 0;
-#endif //UT_DEBUG
