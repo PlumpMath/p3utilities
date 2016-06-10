@@ -6,7 +6,7 @@ AM_CPPFLAGS = \
 	-I$(srcdir)/../../source/library \
 	-I$(srcdir)/../../source/support \
 	-I/usr/include/panda3d -I/usr/include/eigen3 \
-	-DUT_DEBUG1=
+	-DUT_DEBUG=
 
 AM_CXXFLAGS = -O0 -g3 -Wall -Wno-reorder -fmessage-length=0 -std=c++11
 AM_LDFLAGS = -L/usr/lib/x86_64-linux-gnu/panda3d
